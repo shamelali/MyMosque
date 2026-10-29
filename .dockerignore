@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.github
+.qoder
+.env
+.env*.local
+prisma/dev.db
+prisma/dev.db-journal
+.storage
+*.log
+*.pdf
+*.docx
+*.xlsx
+Dockerfile
+docker-compose.yml
+infra

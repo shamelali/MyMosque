@@ -1,0 +1,660 @@
+// Sistem Pengurusan Masjid Johor - data model
+// Local dev uses SQLite (no Docker on the demo machine).
+// Production target per architecture workbook: change provider to "postgresql".
+// Money is stored as integer sen (1 MYR = 100 sen). JSON payloads stored as TEXT.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- identity (E01)
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          String    @default("JEMAAH") // KETUA | SETIAUSAHA | BENDAHARI | AJK | JAINJ | AUDITOR | TUTOR | JEMAAH
+  mosqueId      String?
+  phone         String?
+  mfaEnabled    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  mosque   Mosque?  @relation(fields: [mosqueId], references: [id])
+  accounts Account[]
+  sessions Session[]
+  tutor    Tutor?
+
+  auditLogs     AuditLog[]     @relation("ActorAudit")
+  ledgers       LedgerEntry[]
+  notifications Notification[]
+  bookings      QuranBooking[] @relation("BookingParent")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------- registry (S01)
+
+model Mosque {
+  id        String   @id @default(cuid())
+  code      String   @unique // JAINJ registered code, e.g. JHR/KLU/001
+  name      String
+  district  String
+  address   String?
+  phone     String?
+  email     String?
+  capacity  Int?
+  status    String   @default("AKTIF") // AKTIF | TUTUP | PROJEK
+  jainjRef  String?
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+
+  users        User[]
+  officers     Officer[]
+  terms        CommitteeTerm[]
+  meetings     Meeting[]
+  accounts     LedgerAccount[]
+  entries      LedgerEntry[]
+  reports      MonthlyReport[]
+  receipts     Receipt[]
+  assets       Asset[]
+  maintReqs    MaintenanceRequest[]
+  inspections  Inspection[]
+  projects     Project[]
+  programs     KuliahProgram[]
+  campaigns    Campaign[]
+  donations    Donation[]
+  qurban       QurbanProgram[]
+  quranTutors  Tutor[]
+  payouts      Payout[]
+  scores       ScoreSnapshot[]
+  notifications Notification[]
+  documents    Document[]
+  auditLogs    AuditLog[]
+  syncRuns     SyncRun[]
+}
+
+model Officer {
+  id             String   @id @default(cuid())
+  mosqueId       String
+  name           String
+  position       String // PENGERUSI | TIMBALAN | SETIAUSAHA | BENDAHARI | AJK
+  phone          String?
+  email          String?
+  appointmentDate DateTime @default(now())
+  status         String   @default("AKTIF") // AKTIF | TAMAT
+  userId         String?
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+}
+
+model CommitteeTerm {
+  id        String   @id @default(cuid())
+  mosqueId  String
+  label     String // "Sesi 2025-2027"
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("AKTIF") // AKTIF | TAMAT
+
+  mosque  Mosque            @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  members CommitteeMember[]
+}
+
+model CommitteeMember {
+  id       String  @id @default(cuid())
+  termId   String
+  name     String
+  position String
+  phone    String?
+  icNo     String?
+  active   Boolean @default(true)
+
+  term CommitteeTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+}
+
+model Meeting {
+  id         String   @id @default(cuid())
+  mosqueId   String
+  title      String
+  date       DateTime
+  location   String?
+  agenda     String?
+  decisions  String?
+  minutesKey String?
+  status     String   @default("DIRANCANG") // DIRANCANG | BERLAKU | SELESAI
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------- finance (S02)
+
+model LedgerAccount {
+  id       String @id @default(cuid())
+  mosqueId String
+  code     String
+  name     String
+  type     String // HASIL | PERBELANJAAN | ASET | LIABILITI
+
+  mosque  Mosque        @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+
+  @@unique([mosqueId, code])
+}
+
+model LedgerEntry {
+  id           String   @id @default(cuid())
+  mosqueId     String
+  accountId    String
+  date         DateTime
+  description  String
+  category     String
+  type         String // MASUK | KELUAR
+  amountSen    Int
+  reference    String?
+  method       String? // TUNAI | BANK | QR | FPX | KAD
+  attachmentKey String?
+  status       String   @default("POSTED") // POSTED | VOID
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  mosque  Mosque        @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  account LedgerAccount @relation(fields: [accountId], references: [id])
+  creator User?         @relation(fields: [createdById], references: [id])
+  receipts Receipt[]
+}
+
+model MonthlyReport {
+  id          String   @id @default(cuid())
+  mosqueId    String
+  month       Int
+  year        Int
+  status      String   @default("DRAF") // DRAF | DIHANTAR | DILULUSKAN | DITOLAK
+  totalInSen  Int      @default(0)
+  totalOutSen Int      @default(0)
+  notes       String?
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  reviewerName String?
+  createdAt   DateTime @default(now())
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+
+  @@unique([mosqueId, month, year])
+}
+
+model Receipt {
+  id        String   @id @default(cuid())
+  mosqueId  String
+  number    String   @unique
+  entryId   String?
+  donationId String?
+  issuedTo  String
+  amountSen Int
+  issuedAt  DateTime @default(now())
+  storageKey String?
+  email     String?
+
+  mosque Mosque       @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  entry  LedgerEntry? @relation(fields: [entryId], references: [id])
+}
+
+// ---------------------------------------------------------------- maintenance (S03)
+
+model Asset {
+  id         String   @id @default(cuid())
+  mosqueId   String
+  name       String
+  category   String // PERABOT | ELEKTRIK | KENDERAAN | BANGUNAN | AUDIO
+  location   String?
+  acquiredAt DateTime?
+  valueSen   Int?
+  condition  String   @default("BAIK") // BAIK | SEDERHANA | ROSAK
+  status     String   @default("AKTIF") // AKTIF | DISPOSAL
+
+  mosque       Mosque               @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  requests     MaintenanceRequest[]
+  inspections  Inspection[]
+}
+
+model MaintenanceRequest {
+  id          String   @id @default(cuid())
+  mosqueId    String
+  assetId     String?
+  title       String
+  description String?
+  priority    String   @default("SEDERHANA") // RENDAH | SEDERHANA | TINGGI
+  status      String   @default("DIHANTAR") // DIHANTAR | DILULUSKAN | DALAM_PROSES | SELESAI | DITOLAK
+  costSen     Int?
+  reportedBy  String?
+  assignee    String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  asset  Asset?  @relation(fields: [assetId], references: [id])
+}
+
+model Inspection {
+  id        String   @id @default(cuid())
+  mosqueId  String
+  assetId   String?
+  date      DateTime
+  inspector String
+  findings  String
+  result    String   @default("LULUS") // LULUS | TINDAKAN
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  asset  Asset?  @relation(fields: [assetId], references: [id])
+}
+
+// ---------------------------------------------------------------- projects (S04)
+
+model Project {
+  id          String   @id @default(cuid())
+  mosqueId    String
+  title       String
+  description String?
+  budgetSen   Int
+  spentSen    Int      @default(0)
+  contractor  String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      String   @default("DICADANG") // DICADANG | DILULUSKAN | DITOLAK | DALAM_KERJA | SELESAI
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+
+  mosque   Mosque          @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  expenses ProjectExpense[]
+}
+
+model ProjectExpense {
+  id          String   @id @default(cuid())
+  projectId   String
+  date        DateTime
+  description String
+  amountSen   Int
+  receiptKey  String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------- kuliah (S05)
+
+model Speaker {
+  id            String   @id @default(cuid())
+  name          String
+  tauliahNo     String   @unique
+  tauliahExpiry DateTime?
+  verified      Boolean  @default(false)
+  verifiedBy    String?
+  phone         String?
+  district      String?
+
+  programs KuliahProgram[]
+}
+
+model KuliahProgram {
+  id        String   @id @default(cuid())
+  mosqueId  String
+  title     String
+  type      String // KULIAH_MAGHRIB | CERAMAH | KELAS_QURAN | PROGRAM
+  speakerId String?
+  date      DateTime
+  startTime String
+  endTime   String?
+  location  String?
+  capacity  Int?
+  status    String   @default("DIRANCANG") // DIRANCANG | SAH | DIBATAL | SELESAI
+
+  mosque    Mosque     @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  speaker   Speaker?   @relation(fields: [speakerId], references: [id])
+  attendance Attendance[]
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  programId String
+  name      String
+  phone     String?
+  checkedIn DateTime @default(now())
+
+  program KuliahProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------- donations (S06)
+
+model Campaign {
+  id          String   @id @default(cuid())
+  mosqueId    String
+  title       String
+  description String?
+  targetSen   Int
+  raisedSen   Int      @default(0)
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  status      String   @default("AKTIF") // AKTIF | TAMAT | DRAF
+  qrPayload   String?
+
+  mosque    Mosque     @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  donations Donation[]
+}
+
+model Donation {
+  id           String   @id @default(cuid())
+  mosqueId     String
+  campaignId   String?
+  donorName    String
+  donorEmail   String?
+  donorPhone   String?
+  amountSen    Int
+  anonymous    Boolean  @default(false)
+  recurring    Boolean  @default(false)
+  frequency    String? // BULANAN | MINGGUAN
+  status       String   @default("MENUNGGU") // MENUNGGU | DIBAYAR | GAGAL | DIPULANGKAN
+  gatewayRef   String?
+  method       String?
+  paidAt       DateTime?
+  tpmjSynced   Boolean  @default(false)
+  tpmjRef      String?
+  createdAt    DateTime @default(now())
+
+  mosque   Mosque    @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id])
+}
+
+// ---------------------------------------------------------------- qurban (S07)
+
+model QurbanProgram {
+  id               String   @id @default(cuid())
+  mosqueId         String
+  year             Int
+  animal           String // LEMBU | KAMBING
+  pricePerShareSen Int
+  totalShares      Int
+  availableShares  Int
+  permissionStatus String   @default("MENUNGGU") // DILULUSKAN | MENUNGGU
+  permissionRef    String?
+  distributionDate DateTime?
+  status           String   @default("DIBUKA") // DIBUKA | DITUTUP | SELESAI
+  providerName     String?
+
+  mosque      Mosque             @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+  orders      QurbanOrder[]
+  distributions QurbanDistribution[]
+}
+
+model QurbanOrder {
+  id          String   @id @default(cuid())
+  orderNo     String   @unique
+  programId   String
+  customerName String
+  email       String?
+  phone       String?
+  shares      Int
+  amountSen   Int
+  status      String   @default("MENUNGGU") // MENUNGGU | DIBAYAR | GAGAL | DIBATALKAN
+  gatewayRef  String?
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  program QurbanProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  packs   QurbanDistribution[]
+}
+
+model QurbanDistribution {
+  id             String   @id @default(cuid())
+  programId      String
+  orderId        String?
+  packNo         String
+  recipientName  String
+  recipientPhone String?
+  area           String?
+  deliveredAt    DateTime?
+  deliveredBy    String?
+
+  program QurbanProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  order   QurbanOrder?  @relation(fields: [orderId], references: [id])
+}
+
+// ---------------------------------------------------------------- quran booking (S08)
+
+model Tutor {
+  id            String   @id @default(cuid())
+  userId        String?  @unique
+  mosqueId      String?
+  name          String
+  gender        String   @default("LELAKI") // LELAKI | PEREMPUAN
+  tauliahNo     String
+  tauliahExpiry DateTime?
+  verified      Boolean  @default(false)
+  verifiedBy    String?
+  hourlyRateSen Int
+  bio           String?
+  status        String   @default("AKTIF") // AKTIF | DIGANTUNG
+  createdAt     DateTime @default(now())
+
+  user     User?         @relation(fields: [userId], references: [id])
+  mosque   Mosque?       @relation(fields: [mosqueId], references: [id])
+  slots    QuranSlot[]
+  bookings QuranBooking[]
+  payouts  Payout[]
+  locks    SlotLock[]
+}
+
+model QuranSlot {
+  id        String @id @default(cuid())
+  tutorId   String
+  date      DateTime
+  startTime String
+  endTime   String
+  status    String @default("TERBUKA") // TERBUKA | DIKUNCI | DITEMPAH | DITUTUP
+
+  tutor    Tutor           @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  booking  QuranBooking?
+  lock     SlotLock?
+
+  @@unique([tutorId, date, startTime])
+}
+
+model SlotLock {
+  id        String   @id @default(cuid())
+  slotId    String   @unique
+  tutorId   String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  slot  QuranSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  tutor Tutor     @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+}
+
+model QuranBooking {
+  id              String   @id @default(cuid())
+  bookingNo       String   @unique
+  slotId          String   @unique
+  tutorId         String
+  parentUserId    String?
+  parentName      String
+  parentEmail     String
+  parentPhone     String?
+  studentName     String
+  studentAge      Int
+  studentCount    Int
+  hours           Int
+  amountSen       Int
+  commissionSen   Int
+  guardianConsent Boolean  @default(false)
+  consentAt       DateTime?
+  consentRef      String?
+  status          String   @default("MENUNGGU_BAYARAN") // MENUNGGU_BAYARAN | DISAHKAN | DIBATAL | SELESAI
+  gatewayRef      String?
+  createdAt       DateTime @default(now())
+
+  slot     QuranSlot @relation(fields: [slotId], references: [id])
+  tutor    Tutor     @relation(fields: [tutorId], references: [id])
+  parent   User?     @relation("BookingParent", fields: [parentUserId], references: [id])
+}
+
+model Payout {
+  id           String   @id @default(cuid())
+  tutorId      String
+  mosqueId     String?
+  periodStart  DateTime
+  periodEnd    DateTime
+  grossSen     Int
+  commissionSen Int
+  netSen       Int
+  status       String   @default("MENUNGGU") // MENUNGGU | DIBAYAR
+  paidAt       DateTime?
+  reference    String?
+  createdAt    DateTime @default(now())
+
+  tutor  Tutor   @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  mosque Mosque? @relation(fields: [mosqueId], references: [id])
+}
+
+// ---------------------------------------------------------------- scoring (P01, D03)
+
+model ScoreSnapshot {
+  id            String   @id @default(cuid())
+  mosqueId      String
+  month         Int
+  year          Int
+  total         Int
+  financeScore  Int
+  registryScore Int
+  maintenanceScore Int
+  programScore  Int
+  breakdown     String // JSON
+  computedAt    DateTime @default(now())
+
+  mosque Mosque @relation(fields: [mosqueId], references: [id], onDelete: Cascade)
+
+  @@unique([mosqueId, year, month])
+}
+
+// ---------------------------------------------------------------- platform services
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  mosqueId  String?
+  channel   String // SMS | WHATSAPP | EMAIL | INAP
+  to        String
+  template  String
+  subject   String?
+  body      String
+  payload   String?
+  status    String   @default("BERGILIR") // BERGILIR | DIHANTAR | GAGAL
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id])
+  mosque Mosque? @relation(fields: [mosqueId], references: [id])
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  mosqueId    String?
+  type        String // RESIT | SURAT | LAPORAN | MINIT
+  refId       String?
+  title       String
+  storageKey  String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  mosque Mosque? @relation(fields: [mosqueId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorEmail String
+  actorRole  String
+  action     String // CREATE | UPDATE | DELETE | LOGIN | APPROVE | EXPORT | SYNC
+  entity     String
+  entityId   String?
+  mosqueId   String?
+  before     String?
+  after      String?
+  ip         String?
+  at         DateTime @default(now())
+
+  actor  User?   @relation("ActorAudit", fields: [actorId], references: [id])
+  mosque Mosque? @relation(fields: [mosqueId], references: [id])
+}
+
+model IntegrationConfig {
+  key         String   @id
+  name        String
+  mode        String   @default("MOCK") // MOCK | LIVE
+  enabled     Boolean  @default(true)
+  config      String?
+  updatedAt   DateTime @updatedAt
+}
+
+model SyncRun {
+  id         String   @id @default(cuid())
+  integration String
+  direction  String // INBOUND | OUTBOUND
+  status     String   @default("BERJALAN") // BERJALAN | BERJAYA | GAGAL
+  mosqueId   String?
+  records    Int      @default(0)
+  log        String?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  mosque Mosque? @relation(fields: [mosqueId], references: [id])
+}
+
+model StoredFile {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  contentType String
+  size        Int
+  originalName String?
+  createdAt   DateTime @default(now())
+}

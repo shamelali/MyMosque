@@ -1,0 +1,82 @@
+# Demo SPMJ — Docker Compose.
+# BELUM DIUJI pada mesin demo ini (Docker tidak disediakan). Jalankan
+# `docker compose config` sebelum `docker compose up`.
+#
+# Aplikasi menggunakan SQLite (prisma/schema.prisma, provider = "sqlite").
+# Servis postgres dan redis di bawah profil "prod" ialah sasaran produksi dan
+# TIDAK disambungkan secara automatik kepada aplikasi.
+
+name: spmj
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: spmj-app:demo
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "file:/data/dev.db"
+      AUTH_SECRET: "${AUTH_SECRET:-demo-secret-change-me-in-production-0123456789}"
+      AUTH_URL: "${AUTH_URL:-http://localhost:3000}"
+      NEXTAUTH_URL: "${AUTH_URL:-http://localhost:3000}"
+      DEMO_PASSWORD: "${DEMO_PASSWORD:-demo1234}"
+      NODE_ENV: production
+    volumes:
+      # Fail SQLite dan fail dokumen/resit disimpan dalam volum.
+      - app-data:/data
+      - storage:/app/.storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # Produksi menggunakan PostgreSQL 16. Untuk menggunakannya, tukar provider
+  # dalam prisma/schema.prisma kepada "postgresql" dan tetapkan DATABASE_URL
+  # aplikasi kepada postgresql://... — lihat infra/README.md.
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spmj
+      POSTGRES_USER: spmj
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-spmj-demo}"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spmj -d spmj"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis disediakan untuk barisan kerja (BullMQ) dalam produksi. Demo semasa
+  # menggunakan jadual/DB polling melalui scripts/run-queue.ts.
+  redis:
+    image: redis:7-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  app-data:
+  storage:
+  pg-data:
+  redis-data:

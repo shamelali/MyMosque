@@ -1,0 +1,51 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: "file:./ci.db"
+  AUTH_SECRET: "ci-only-dummy-secret-0123456789abcdef"
+  AUTH_URL: "http://localhost:3000"
+  NEXTAUTH_URL: "http://localhost:3000"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: Typecheck, seed dan build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sediakan Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Pasang kebergantungan
+        run: npm ci
+
+      - name: Jana Prisma Client
+        run: npx prisma generate
+
+      - name: Sediakan pangkalan data CI
+        run: npx prisma db push --skip-generate
+
+      - name: Seed data demo
+        run: npm run db:seed
+
+      - name: Semak jenis TypeScript
+        run: npm run typecheck
+
+      - name: Bina aplikasi
+        run: npm run build
