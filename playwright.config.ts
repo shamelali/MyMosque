@@ -11,6 +11,14 @@ export default defineConfig({
     baseURL: "http://localhost:3100",
     trace: "on-first-retry",
   },
+  // E2E runs against the production build: `next dev` cold-compiles routes for
+  // ~70s on this machine, which blows the per-test navigate timeout.
+  webServer: {
+    command: "npm run start",
+    port: 3100,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
   projects: [
     {
       name: "chromium",

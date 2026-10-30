@@ -92,28 +92,25 @@ export default async function LoginPage({
               </p>
             )}
 
-            <form action={googleSignIn} className="mt-5">
-              <button
-                type="submit"
-                disabled={!googleEnabled}
-                className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-brand-900/15 bg-white px-4 py-2.5 text-sm font-semibold text-brand-950 transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                <GoogleMark />
-                Teruskan dengan Google
-              </button>
-            </form>
-            {!googleEnabled && (
-              <p className="mt-2 text-[11px] leading-relaxed text-brand-900/45">
-                Google log masuk belum dikonfigurasi. Tetapkan <code className="rounded bg-sand px-1 py-0.5">GOOGLE_CLIENT_ID</code> dan{" "}
-                <code className="rounded bg-sand px-1 py-0.5">GOOGLE_CLIENT_SECRET</code> dalam <code className="rounded bg-sand px-1 py-0.5">.env</code>.
-              </p>
-            )}
+            {googleEnabled && (
+              <>
+                <form action={googleSignIn} className="mt-5">
+                  <button
+                    type="submit"
+                    className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-brand-900/15 bg-white px-4 py-2.5 text-sm font-semibold text-brand-950 transition hover:bg-sand"
+                  >
+                    <GoogleMark />
+                    Teruskan dengan Google
+                  </button>
+                </form>
 
-            <div className="my-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-brand-900/10" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-900/35">atau akaun demo</span>
-              <span className="h-px flex-1 bg-brand-900/10" />
-            </div>
+                <div className="my-5 flex items-center gap-3">
+                  <span className="h-px flex-1 bg-brand-900/10" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-900/35">atau akaun demo</span>
+                  <span className="h-px flex-1 bg-brand-900/10" />
+                </div>
+              </>
+            )}
 
             <div className="max-h-[19rem] space-y-1.5 overflow-y-auto pr-1">
               {DEMO_EMAILS.map((account) => (
