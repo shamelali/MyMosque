@@ -7,7 +7,8 @@
       "Read(//tmp/qoder-cli-1000/-media-shamelali-Data1-1-Projects-MyMosque/e090e5a1-837e-4555-b8a0-10e6a3201b6c/tasks/**)",
       "Bash(tail:*)",
       "Bash(npm run build 2>&1)",
-      "Bash(sleep 30 && cat /tmp/qoder-cli-1000/-media-shamelali-Data1-1-Projects-MyMosque/e090e5a1-837e-4555-b8a0-10e6a3201b6c/tasks/b53bj7cx8.output)"
+      "Bash(sleep 30 && cat /tmp/qoder-cli-1000/-media-shamelali-Data1-1-Projects-MyMosque/e090e5a1-837e-4555-b8a0-10e6a3201b6c/tasks/b53bj7cx8.output)",
+      "Bash(echo \"--- prisma ---\" && git diff prisma/schema.prisma && echo \"--- last-run ---\" && git diff test-results/.last-run.json && echo \"--- hello.ts ---\" && cat hello.ts && echo \"--- neon.ts ---\" && cat neon.ts && echo \"--- ignored? ---\" && git check-ignore -v hello.ts neon.ts test-results 2>&1 | head)"
     ]
   }
 }
