@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.8.0",
+    "@neon/config": "^1.9.5",
+    "@neon/env": "^1.6.6",
     "@prisma/client": "^6.5.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.485.0",
