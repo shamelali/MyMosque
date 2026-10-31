@@ -596,6 +596,26 @@ model JobQueue {
   jobs Job[]
 }
 
+// ---------------------------------------------------------------- payment intents (S11)
+
+// Maps a live gateway payment reference to the domain record it settles,
+// so the gateway return handler can reconcile without trusting query params.
+model PaymentIntent {
+  id          String   @id @default(cuid())
+  gatewayRef  String   @unique // our client ref (embedded in gateway redirect URL)
+  externalId  String?  @unique // the gateway's own payment id, used for API verification
+  provider    String   @default("MOCK") // MOCK | HITPAY | BILLPLZ
+  kind        String   // DONATION | QURBAN | QURAN_BOOKING | STORE
+  entityId    String
+  amountSen   Int
+  status      String   @default("PENDING") // PENDING | PAID | FAILED | EXPIRED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([kind, entityId])
+  @@index([gatewayRef])
+}
+
 // ---------------------------------------------------------------- store / shopping (S10)
 
 model StoreItem {

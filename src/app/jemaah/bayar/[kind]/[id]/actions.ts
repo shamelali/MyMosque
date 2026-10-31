@@ -6,7 +6,7 @@ import { requirePageUser } from "@/components/channel-shell";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
-import { confirmPayment, type PaymentPurpose } from "@/lib/payments";
+import { confirmPayment, createIntent, integrationMode, type PaymentPurpose } from "@/lib/payments";
 import { rm } from "@/lib/utils";
 
 const KINDS: PaymentPurpose[] = ["DONATION", "QURBAN", "QURAN_BOOKING", "STORE"];
@@ -25,6 +25,11 @@ const PURPOSE_LABEL: Record<PaymentPurpose, string> = {
   QURAN_BOOKING: "tempahan kelas Al-Quran",
   STORE: "belian kedai",
 };
+
+/** Human-readable intent description sent to the gateway (HitPay/Billplz). */
+function intentDescription(kind: PaymentPurpose, id: string, method: string): string {
+  return `SPMJ ${PURPOSE_LABEL[kind]} · ${method} · ${id.slice(-6).toUpperCase()}`;
+}
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -127,6 +132,36 @@ export async function payNow(formData: FormData) {
 
   let result: Awaited<ReturnType<typeof confirmPayment>> | null = null;
   try {
+    const mode = await integrationMode("gateway");
+    if (mode === "LIVE") {
+      const intent = await createIntent({
+        amountSen: payer.amountSen,
+        purpose: kind,
+        description: intentDescription(kind, id, method),
+        payerName: payer.name,
+        payerEmail: payer.email ?? user.email ?? "",
+        entityId: id,
+      });
+      if (intent.checkoutUrl) {
+        await audit({
+          actor: user,
+          action: "CREATE",
+          entity: "PaymentIntent",
+          entityId: intent.ref,
+          mosqueId: null,
+          after: {
+            kind,
+            entityId: id,
+            amountSen: payer.amountSen,
+            provider: intent.provider,
+            method,
+          },
+        });
+        revalidatePath(base);
+        redirect(intent.checkoutUrl);
+      }
+      fail("Gerbang LIVE tidak mengembalikan pautan pembayaran.");
+    }
     result = await confirmPayment({ kind, id, actorEmail: user.email ?? "sistem" });
   } catch (error) {
     fail(error instanceof Error ? error.message : "Pembayaran gagal. Sila cuba semula.");
