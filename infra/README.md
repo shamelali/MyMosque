@@ -9,12 +9,12 @@ Aplikasi masih menggunakan SQLite; PostgreSQL ialah sasaran produksi.
 
 | Kod | Komponen | Sasaran produksi | Fasa |
 | --- | --- | --- | --- |
-| H01 | Kluster aplikasi | 3–12 pod autoscaling, wilayah Malaysia (Johor) | 1 |
+| H01 | Kluster aplikasi | 3–12 pod autoscaling, wilayah Malaysia (Johor) — `autoscaling.yaml` | 1 |
 | H02 | Pangkalan data utama | PostgreSQL 16, penyulitan AES-256, sandaran harian | 1 |
 | H03 | Pangkalan data siap sedia | Replika zon B, failover automatik, sasaran lag <5s | 2 |
 | H04 | Storan objek | S3-compatible, versioning, wilayah Malaysia | 1 |
 | H05 | CI/CD | GitHub Actions: typecheck, seed, build | 1 |
-| H06 | Pemantauan | Metrik, log, amaran dan uptime | 1 |
+| H06 | Pemantauan | Metrik, log, amaran dan uptime — SLO 99.5% di `AVAILABILITY.md` | 1 |
 | H07 | WAF & DDoS | WAF OWASP CRS dan perlindungan DDoS di tepi | 1 |
 | H08 | Tapak pemulihan bencana | Wilayah kedua Malaysia, RPO 15 min, RTO 4 jam | 2 |
 
@@ -79,6 +79,26 @@ Imej turut menyalin `src/` supaya `npm run db:seed` boleh dijalankan di dalam be
 `AUTH_SECRET` dummy disediakan pada peringkat job. CI tidak membina imej Docker
 pada masa ini.
 
+## Beban puncak, beku perubahan dan SLO
+
+- `/api/health` — liveness (sentiasa 200); `/api/health?deep=1` —
+  readiness (ping DB + kira `Job` PENDING; 503 jika `degraded`).
+  Dipakai oleh probe dalam `autoscaling.yaml` dan `setup()` k6.
+- `autoscaling.yaml` — HPA `spmj-app` 3–12 pod (CPU 60%, memori 75%),
+  PodDisruptionBudget `minAvailable: 2`, Deployment dengan rolling
+  `maxUnavailable: 0`, dan ScaledObject KEDA (trigger barisan PostgreSQL).
+- `load/k6-peak.js` — senario `normal` (50 VU), `sahur` (200 VU),
+  `raya` (350 VU), `payday` (150 VU); ambang kontrak: p95 < 400 ms,
+  p99 < 1200 ms, pemeriksaan > 99%. Jalankan:
+  `k6 run -e SCENARIO=raya infra/load/k6-peak.js` (perlu `K6_BASE_URL`).
+- `CHANGE_FREEZE.md` — tingkap beku Ramadan/Aidilfitri/gaji dan proses
+  deploy kecemasan dua kelulusan.
+- `AVAILABILITY.md` — SLO 99.5% (belanjawan ralat 216 minit/bulan),
+  jadual ambang amaran/warn-kritikal dan peta H01–H08.
+
+Nota: konfigurasi K8s/KEDA/k6 adalah reka bentuk sasaran; belum
+dijalankan pada kluster demo.
+
 ## Pemulihan bencana (DR)
 
 - RPO 15 minit, RTO 4 jam; tapak kedua di wilayah Malaysia Timur.
@@ -93,3 +113,7 @@ pada masa ini.
 - Aktifkan Redis/BullMQ untuk barisan mesej dan kerja latar.
 - Dapatkan kelayakan penyedia pembayaran/mesej sebelum menukar mod LIVE.
 - Jalankan pen test, PIA PDPA dan latihan DR sebelum pelancaran.
+- Pasang `autoscaling.yaml` pada kluster Malaysia dan sahkan dengan
+  senario k6 `sahur`/`raya` sebelum Ramadan pertama.
+- Sambungkan pembekal amaran sebenar kepada ambang `AVAILABILITY.md`
+  dan aktifkan pintu beku perubahan dalam CI.

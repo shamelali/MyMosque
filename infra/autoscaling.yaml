@@ -1,0 +1,153 @@
+# SPMJ — H01 autoscaling target (Kubernetes + Horizontal Pod Autoscaler).
+# Demo app does not run on Kubernetes today; this file is the deployment
+# contract so a real cluster rollout in Phase 1 is a config swap, not a
+# redesign. The HPA drives pod count between 3 and 12, matching the
+# /system/ops "3–12 pod" note.
+#
+# Apply with: kubectl apply -f infra/autoscaling.yaml
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spmj-app
+  namespace: spmj
+  labels:
+    app: spmj-app
+    region: malaysia-johor
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spmj-app
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+
+---
+# PodDisruptionBudget — keep at least 2 pods during node drains so the LB
+# never sees a cold-start wave during a rolling maintenance window.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spmj-app
+  namespace: spmj
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: spmj-app
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spmj-app
+  namespace: spmj
+  labels:
+    app: spmj-app
+    region: malaysia-johor
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: spmj-app
+  template:
+    metadata:
+      labels:
+        app: spmj-app
+        region: malaysia-johor
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/spmj/app:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: AUTH_URL
+              value: "https://spmj.example"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/health?deep=1
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: storage
+              mountPath: /app/.storage
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: spmj-storage
+
+---
+# Optional: KEDA ScaledObject driven by Neon / Prisma queue backlog when
+# self-hosting on Kubernetes. The Vercel path uses function concurrency
+# ceilings instead (see infra/AVAILABILITY.md).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: spmj-queue
+  namespace: spmj
+spec:
+  scaleTargetRef:
+    name: spmj-app
+  minReplicaCount: 3
+  maxReplicaCount: 12
+  triggers:
+    - type: postgres
+      metadata:
+        connectionStringFromEnv: DATABASE_URL
+        query: "SELECT COALESCE(COUNT(*), 0) FROM \"Job\" WHERE status = 'PENDING'"
+        targetValue: "120"
