@@ -76,7 +76,7 @@ function asMode(value: string | null | undefined): "MOCK" | "LIVE" {
 
 async function gatewayConfig(): Promise<{ mode: "MOCK" | "LIVE"; provider: GatewayProvider }> {
   const cfg = await prisma.integrationConfig.findUnique({ where: { key: "gateway" } });
-  const raw = (cfg?.config ?? {}) as { provider?: string };
+  const raw = (cfg?.config ? JSON.parse(cfg.config as string) : {}) as { provider?: string };
   const provider: GatewayProvider =
     String(raw.provider ?? "HITPAY").toUpperCase() === "BILLPLZ" ? "BILLPLZ" : "HITPAY";
   return { mode: asMode(cfg?.mode), provider };

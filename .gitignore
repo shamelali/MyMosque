@@ -30,3 +30,6 @@ npm-debug.log*
 test-results/
 playwright-report/
 .env*
+
+# Redis binary (self-extracted dev dependency, not source)
+.redis/
