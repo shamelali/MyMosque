@@ -24,7 +24,7 @@ import { payNow } from "./actions";
 
 export const metadata: Metadata = { title: "Pembayaran" };
 
-const KINDS: PaymentPurpose[] = ["DONATION", "QURBAN", "QURAN_BOOKING"];
+const KINDS: PaymentPurpose[] = ["DONATION", "QURBAN", "QURAN_BOOKING", "STORE"];
 
 type Detail = { label: string; value: string };
 
@@ -89,28 +89,52 @@ async function loadCheckout(kind: PaymentPurpose, id: string): Promise<CheckoutV
     };
   }
 
-  const booking = await prisma.quranBooking.findUnique({
+  if (kind === "QURAN_BOOKING") {
+    const booking = await prisma.quranBooking.findUnique({
+      where: { id },
+      include: { tutor: { select: { name: true } }, slot: { select: { date: true, startTime: true, endTime: true } } },
+    });
+    if (!booking) return null;
+    return {
+      amountSen: booking.amountSen,
+      purpose: `Kelas Al-Quran — ${booking.hours} jam bersama ${booking.tutor.name}`,
+      payerName: booking.parentName,
+      payerEmail: booking.parentEmail,
+      status: booking.status,
+      canPay: booking.status === "MENUNGGU_BAYARAN",
+      paid: booking.status === "DISAHKAN" || booking.status === "SELESAI",
+      details: [
+        { label: "Tutor", value: booking.tutor.name },
+        { label: "Pelajar", value: `${booking.studentName} (${booking.studentAge} tahun)` },
+        {
+          label: "Slot",
+          value: `${tarikh(booking.slot.date)} · ${booking.slot.startTime}–${booking.slot.endTime}`,
+        },
+        { label: "Bilangan pelajar", value: `${booking.studentCount} pelajar · ${booking.hours} jam` },
+        { label: "Persetujuan penjaga", value: booking.guardianConsent ? booking.consentRef ?? "Direkod" : "Tiada" },
+      ],
+    };
+  }
+
+  const storeOrder = await prisma.order.findUnique({
     where: { id },
-    include: { tutor: { select: { name: true } }, slot: { select: { date: true, startTime: true, endTime: true } } },
+    include: { items: { include: { item: true } } },
   });
-  if (!booking) return null;
+  if (!storeOrder) return null;
+  const itemList = storeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ");
   return {
-    amountSen: booking.amountSen,
-    purpose: `Kelas Al-Quran — ${booking.hours} jam bersama ${booking.tutor.name}`,
-    payerName: booking.parentName,
-    payerEmail: booking.parentEmail,
-    status: booking.status,
-    canPay: booking.status === "MENUNGGU_BAYARAN",
-    paid: booking.status === "DISAHKAN" || booking.status === "SELESAI",
+    amountSen: storeOrder.totalSen,
+    purpose: `Pesanan kedai ${storeOrder.orderNo} — ${itemList}`,
+    payerName: storeOrder.buyerName,
+    payerEmail: storeOrder.buyerEmail,
+    status: storeOrder.status,
+    canPay: storeOrder.status === "MENUNGGU_BAYARAN",
+    paid: storeOrder.status === "DIBAYAR",
     details: [
-      { label: "Tutor", value: booking.tutor.name },
-      { label: "Pelajar", value: `${booking.studentName} (${booking.studentAge} tahun)` },
-      {
-        label: "Slot",
-        value: `${tarikh(booking.slot.date)} · ${booking.slot.startTime}–${booking.slot.endTime}`,
-      },
-      { label: "Bilangan pelajar", value: `${booking.studentCount} pelajar · ${booking.hours} jam` },
-      { label: "Persetujuan penjaga", value: booking.guardianConsent ? booking.consentRef ?? "Direkod" : "Tiada" },
+      { label: "Nombor pesanan", value: storeOrder.orderNo },
+      { label: "Item", value: itemList },
+      { label: "Telefon", value: storeOrder.buyerPhone ?? "—" },
+      { label: "Commission", value: `${rm(storeOrder.commissionSen)} dibenarkan di punca` },
     ],
   };
 }
@@ -122,6 +146,12 @@ async function findReceipt(kind: PaymentPurpose, id: string, view: CheckoutView)
   if (kind === "QURBAN") {
     return prisma.receipt.findFirst({
       where: { amountSen: view.amountSen, issuedTo: view.payerName, donationId: null },
+      orderBy: { issuedAt: "desc" },
+    });
+  }
+  if (kind === "STORE") {
+    return prisma.receipt.findFirst({
+      where: { amountSen: view.amountSen, issuedTo: view.payerName, donationId: null, entryId: { not: null } },
       orderBy: { issuedAt: "desc" },
     });
   }
@@ -154,7 +184,7 @@ export default async function CheckoutPage({
   if (!view) notFound();
 
   const receipt = view.paid ? await findReceipt(kind, id, view) : null;
-  const backHref = kind === "DONATION" ? "/jemaah/derma" : kind === "QURBAN" ? "/jemaah/qurban" : "/jemaah/quran";
+  const backHref = kind === "DONATION" ? "/jemaah/derma" : kind === "QURBAN" ? "/jemaah/qurban" : kind === "STORE" ? "/jemaah/kedai" : "/jemaah/quran";
   const base = `/jemaah/bayar/${kind}/${id}`;
   const payingForOther = view.payerEmail && view.payerEmail !== (user.email ?? "");
 

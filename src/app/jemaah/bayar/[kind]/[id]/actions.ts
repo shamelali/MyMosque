@@ -9,19 +9,21 @@ import { notify } from "@/lib/notifications";
 import { confirmPayment, type PaymentPurpose } from "@/lib/payments";
 import { rm } from "@/lib/utils";
 
-const KINDS: PaymentPurpose[] = ["DONATION", "QURBAN", "QURAN_BOOKING"];
+const KINDS: PaymentPurpose[] = ["DONATION", "QURBAN", "QURAN_BOOKING", "STORE"];
 const METHODS = ["QR", "FPX", "KAD"];
 
 const ENTITY: Record<PaymentPurpose, string> = {
   DONATION: "Donation",
   QURBAN: "QurbanOrder",
   QURAN_BOOKING: "QuranBooking",
+  STORE: "Order",
 };
 
 const PURPOSE_LABEL: Record<PaymentPurpose, string> = {
   DONATION: "derma",
   QURBAN: "tempahan qurban",
   QURAN_BOOKING: "tempahan kelas Al-Quran",
+  STORE: "belian kedai",
 };
 
 function text(formData: FormData, key: string) {
@@ -71,17 +73,32 @@ async function payerFor(kind: PaymentPurpose, id: string): Promise<Payer | null>
     };
   }
 
-  const booking = await prisma.quranBooking.findUnique({
+  if (kind === "QURAN_BOOKING") {
+    const booking = await prisma.quranBooking.findUnique({
+      where: { id },
+      select: { parentName: true, parentEmail: true, amountSen: true, status: true },
+    });
+    if (!booking) return null;
+    return {
+      name: booking.parentName,
+      email: booking.parentEmail,
+      amountSen: booking.amountSen,
+      canPay: booking.status === "MENUNGGU_BAYARAN",
+      paid: booking.status === "DISAHKAN" || booking.status === "SELESAI",
+    };
+  }
+
+  const storeOrder = await prisma.order.findUnique({
     where: { id },
-    select: { parentName: true, parentEmail: true, amountSen: true, status: true },
+    select: { buyerName: true, buyerEmail: true, totalSen: true, status: true, mosqueId: true },
   });
-  if (!booking) return null;
+  if (!storeOrder) return null;
   return {
-    name: booking.parentName,
-    email: booking.parentEmail,
-    amountSen: booking.amountSen,
-    canPay: booking.status === "MENUNGGU_BAYARAN",
-    paid: booking.status === "DISAHKAN" || booking.status === "SELESAI",
+    name: storeOrder.buyerName,
+    email: storeOrder.buyerEmail,
+    amountSen: storeOrder.totalSen,
+    canPay: storeOrder.status === "MENUNGGU_BAYARAN",
+    paid: storeOrder.status === "DIBAYAR",
   };
 }
 
@@ -155,9 +172,11 @@ export async function payNow(formData: FormData) {
   revalidatePath("/jemaah/derma");
   revalidatePath("/jemaah/qurban");
   revalidatePath("/jemaah/quran");
+  revalidatePath("/jemaah/kedai");
   revalidatePath("/portal/derma");
   revalidatePath("/portal/qurban");
   revalidatePath("/portal/quran");
+  revalidatePath("/portal/kedai");
 
   const query = receiptNumber ? `?resit=${encodeURIComponent(receiptNumber)}` : "";
   redirect(`${base}/selesai${query}`);

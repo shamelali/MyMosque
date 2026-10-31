@@ -10,7 +10,7 @@ import { rm } from "@/lib/utils";
 
 export const COMMISSION_PCT = 1.5;
 
-export type PaymentPurpose = "DONATION" | "QURBAN" | "QURAN_BOOKING";
+export type PaymentPurpose = "DONATION" | "QURBAN" | "QURAN_BOOKING" | "STORE";
 
 export type Intent = {
   ref: string;
@@ -127,6 +127,71 @@ export async function confirmPayment(input: { kind: PaymentPurpose; id: string; 
       mosqueId: order.program.mosqueId,
     });
     return { already: false, mosqueId: order.program.mosqueId, receiptNumber: receipt.number };
+  }
+
+  if (input.kind === "STORE") {
+    const order = await prisma.order.findUnique({
+      where: { id: input.id },
+      include: { items: true, mosque: true },
+    });
+    if (!order) throw new Error("Pesanan kedai tidak dijumpai.");
+    if (order.status === "DIBAYAR") return { already: true, mosqueId: order.mosqueId };
+
+    const ref = `MOCK-STORE-${Date.now().toString(36).toUpperCase()}`;
+    let entryId: string | null = null;
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: "DIBAYAR", paidAt: new Date(), gatewayRef: ref },
+      });
+      for (const item of order.items) {
+        await tx.storeItem.update({
+          where: { id: item.itemId },
+          data: { stock: { decrement: item.qty } },
+        });
+      }
+      const hasilAccount = await tx.ledgerAccount.findFirst({
+        where: { mosqueId: order.mosqueId, type: "HASIL" },
+      });
+      if (hasilAccount) {
+        const entry = await tx.ledgerEntry.create({
+          data: {
+            mosqueId: order.mosqueId,
+            accountId: hasilAccount.id,
+            date: new Date(),
+            description: `Jualan kedai — ${order.orderNo}`,
+            category: "STORE",
+            type: "MASUK",
+            amountSen: order.netSen,
+            reference: order.id,
+            method: "KAD",
+            status: "POSTED",
+            createdById: undefined,
+          },
+        });
+        entryId = entry.id;
+      }
+    });
+
+    const receipt = await issueReceipt({
+      mosqueId: order.mosqueId,
+      issuedTo: order.buyerName,
+      email: order.buyerEmail,
+      amountSen: order.totalSen,
+      purpose: `Pesanan kedai ${order.orderNo}`,
+      method: "Kad (simulasi)",
+      entryId,
+    });
+    await notify({
+      channel: "EMAIL",
+      to: order.buyerEmail,
+      template: "resit_beli",
+      subject: `Resit ${receipt.number}`,
+      body: `Terima kasih. Pesanan ${order.orderNo} telah dibayar. Resit ${receipt.number} dilampirkan dalam akaun anda.`,
+      mosqueId: order.mosqueId,
+      payload: { receiptId: receipt.id },
+    });
+    return { already: false, mosqueId: order.mosqueId, receiptNumber: receipt.number };
   }
 
   const booking = await prisma.quranBooking.findUnique({ where: { id: input.id }, include: { tutor: true } });

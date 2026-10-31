@@ -67,6 +67,30 @@ export function Stat({
   );
 }
 
+export function CardTitle({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return <h3 className={cn("text-sm font-semibold leading-none tracking-tight", className)}>{children}</h3>;
+}
+
+export function CardContent({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <div className={cn("p-5 pt-0", className)}>{children}</div>;
+}
+
+export function CardFooter({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return <div className={cn("flex items-center space-between p-5 pt-0", className)}>{children}</div>;
+}
+
 export function StatusBadge({ value }: { value: string | null | undefined }) {
   return <Badge tone={toneOf(value)}>{label(value)}</Badge>;
 }
